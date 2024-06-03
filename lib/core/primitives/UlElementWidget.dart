@@ -1,3 +1,4 @@
+import 'package:bromium/core/primitives/DivContainer.dart';
 import 'package:flutter/material.dart';
 
 class UlElementWidget extends StatelessWidget {
@@ -10,7 +11,7 @@ class UlElementWidget extends StatelessWidget {
     return Container(
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
-      child: Column(
+      child: DivContainer(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: children.map((child) {
           return Row(

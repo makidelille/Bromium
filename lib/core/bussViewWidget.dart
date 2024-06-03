@@ -33,7 +33,8 @@ class _BussViewWidgetState extends State<BussViewWidget> {
             return Text('There was an error fetching ${widget.url}');
           }
 
-          return Parser.parseHtml(snapshot.data ?? "No content", context);
+          return Parser.parseHtml(
+              widget.url, snapshot.data ?? "No content", context);
         });
   }
 }

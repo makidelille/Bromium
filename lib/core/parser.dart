@@ -1,14 +1,15 @@
-import 'dart:ffi';
-
 import 'package:bromium/core/primitives/ClassContainer.dart';
 import 'package:bromium/core/primitives/DivContainer.dart';
 import 'package:bromium/core/primitives/OlElementWidget.dart';
 import 'package:bromium/core/primitives/UlElementWidget.dart';
 import 'package:bromium/core/primitives/WebPageWidget.dart';
 import 'package:collection/collection.dart';
+import 'package:csslib/visitor.dart' as css;
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart';
+
+import 'package:csslib/parser.dart' as csslib;
 
 class Parser {
   static String extractBetweenTags(String tag, String str) {
@@ -17,7 +18,7 @@ class Parser {
     return str.substring(startIndex, endIndex);
   }
 
-  static Widget parseHtml(String rawHtml, BuildContext context) {
+  static Widget parseHtml(Uri baseUri, String rawHtml, BuildContext context) {
     final head = extractBetweenTags("head", rawHtml);
     final body = extractBetweenTags("body", rawHtml);
 
@@ -25,16 +26,14 @@ class Parser {
     dom.Document headDoc = parse(head, encoding: 'utf8');
 
     return WebPageWidget(
-      head: extractHead(headDoc.head),
-      root: SizedBox(
-          width: MediaQuery.of(context).size.width,
-          child: navigateTree(doc.body, null, context)),
+      head: extractHead(baseUri, headDoc.head),
+      root: navigateTree(doc.body, null, context),
     );
   }
 
-  static WebPageHead extractHead(dom.Element? head) {
-    if (head == null) return WebPageHead();
-    final meta = WebPageHead();
+  static WebPageHead extractHead(Uri baseUri, dom.Element? head) {
+    final meta = WebPageHead(baseHref: baseUri);
+    if (head == null) return meta;
     for (final child in head.children) {
       switch (child.localName) {
         case "title":
@@ -43,11 +42,11 @@ class Parser {
         case "link":
           final href = child.attributes.entries
               .firstWhere((element) => element.key == "href");
-          meta.links.add(href.value);
+          meta.links.add(Uri.parse(href.value));
         case "script":
           final src = child.attributes.entries
               .firstWhere((element) => element.key == "src");
-          meta.scripts.add(src.value);
+          meta.scripts.add(Uri.parse(src.value));
           break;
         case "meta":
           final name = child.attributes.entries
@@ -64,8 +63,6 @@ class Parser {
     return meta;
   }
 
-  static void parseCss(String rawCss) {}
-
   static Widget navigateTree(
       dom.Node? node, TextStyle? parentStyle, BuildContext context) {
     if (node == null) return Container();
@@ -80,6 +77,7 @@ class Parser {
         final ele = (node as dom.Element);
 
         return ClassContainer(
+            tag: ele.localName!,
             clazz: ele.className,
             child: extractPrimitive(ele, parentStyle, context));
 
@@ -168,6 +166,292 @@ class Parser {
             child: navigateTree(ele.firstChild, parentStyle, context));
       default:
         throw UnimplementedError("Tag ${ele.localName} not implemented");
+    }
+  }
+
+  static List<css.RuleSet> parseCss(String rawCss) {
+    css.StyleSheet sheet = csslib.parse(rawCss);
+    return sheet.topLevels.whereType<css.RuleSet>().toList();
+  }
+
+  static Widget applyCss(List<css.RuleSet> rules, Widget tree) {
+    Widget changed = tree;
+    for (final rule in rules) {
+      final selector = rule.selectorGroup?.selectors.firstOrNull
+          ?.simpleSelectorSequences.firstOrNull?.simpleSelector.name;
+
+      if (selector == null) continue;
+
+      changed = recursiveApplyRule(selector, rule, changed);
+    }
+    return Container(child: changed);
+  }
+
+  static Widget recursiveApplyRule(
+      String selector, css.RuleSet rule, Widget tree) {
+    switch (tree) {
+      case final ClassContainer _:
+        if (tree.match(selector)) {
+          tree = applyRules(rule, tree);
+        }
+        if (tree.child != null) {
+          tree.child = recursiveApplyRule(selector, rule, tree.child!);
+        }
+
+      case final DivContainer _:
+        tree.children = tree.children
+            .map((child) => recursiveApplyRule(selector, rule, child))
+            .toList();
+    }
+    return tree;
+  }
+
+  static ClassContainer applyRules(css.RuleSet rule, ClassContainer widget) {
+    for (final declaration
+        in rule.declarationGroup.declarations.whereType<css.Declaration>()) {
+      if (declaration.expression == null) continue;
+      dynamic value = parseExpressionValue(declaration.expression!);
+      switch (declaration.property) {
+        case "border-color":
+          widget.decoration = widget.decoration
+              .copyWith(border: Border.all(color: Color(value)));
+          break;
+        case "border-width":
+          widget.decoration =
+              widget.decoration.copyWith(border: Border.all(width: value));
+          break;
+        case "border-style":
+          BorderStyle bStyle = BorderStyle.none;
+          switch (value) {
+            case "dotted":
+            case "double":
+            case "groove":
+            case "ridge":
+            case "dashed":
+            case "solid":
+              bStyle = BorderStyle.solid;
+              break;
+            case 'hidden':
+            case "none":
+            default:
+              bStyle = BorderStyle.none;
+              break;
+          }
+          widget.decoration =
+              widget.decoration.copyWith(border: Border.all(style: bStyle));
+          break;
+        case "border-radius":
+          widget.decoration = widget.decoration
+              .copyWith(borderRadius: BorderRadius.circular(value));
+          break;
+        case "direction":
+          if (widget.child != null && widget.child is DivContainer) {
+            DisplayDirection direction = DisplayDirection.column;
+            switch (value) {
+              case "row":
+                direction = DisplayDirection.row;
+                break;
+              default:
+            }
+            (widget.child! as DivContainer).displayMode = direction;
+          }
+          break;
+        case "align-items":
+          if (widget.child != null && widget.child is DivContainer) {
+            MainAxisAlignment mainAxisAlignment = MainAxisAlignment.center;
+
+            switch (value) {
+              case "fill":
+                mainAxisAlignment = MainAxisAlignment.spaceEvenly;
+                break;
+              case "start":
+                mainAxisAlignment = MainAxisAlignment.start;
+                break;
+              case "center":
+                mainAxisAlignment = MainAxisAlignment.center;
+                break;
+              case "end":
+                mainAxisAlignment = MainAxisAlignment.end;
+            }
+            (widget.child! as DivContainer).mainAxisAlignment =
+                mainAxisAlignment;
+          }
+          break;
+        case "color":
+          widget.decoration = widget.decoration.copyWith(color: Color(value));
+          break;
+        case "padding":
+          widget.padding = value;
+          break;
+        case "gap":
+          if (widget.child != null && widget.child is DivContainer) {
+            (widget.child as DivContainer).gap = double.parse(value);
+          }
+          break;
+        case "font-size":
+          if (widget.child != null && widget.child is Text) {
+            final textNode = (widget.child as Text);
+            widget.child = Text(
+              textNode.data!,
+              style: textNode.style!.merge(TextStyle(fontSize: value)),
+            );
+          }
+          break;
+        case "font-height":
+          //TODO: handle font-height
+          break;
+        case "font-family":
+          if (widget.child != null && widget.child is Text) {
+            final textNode = (widget.child as Text);
+            widget.child = Text(
+              textNode.data!,
+              style: textNode.style!.merge(TextStyle(fontFamily: value)),
+            );
+          }
+          break;
+        case "font-weight ":
+          if (widget.child != null && widget.child is Text) {
+            FontWeight weight = FontWeight.normal;
+            switch (value) {
+              case 'ultralight':
+                weight = FontWeight.w100;
+                break;
+              case "light":
+                weight = FontWeight.w200;
+                break;
+              case "normal":
+                weight = FontWeight.normal;
+                break;
+              case "bold":
+                weight = FontWeight.bold;
+                break;
+              case "ultrabold":
+                weight = FontWeight.w800;
+                break;
+              case "heavy":
+                weight = FontWeight.w900;
+                break;
+            }
+
+            final textNode = (widget.child as Text);
+            widget.child = Text(
+              textNode.data!,
+              style: textNode.style!.merge(TextStyle(fontWeight: weight)),
+            );
+          }
+          break;
+        case "underline":
+          if (widget.child != null && widget.child is Text) {
+            TextDecoration textDecoration = TextDecoration.none;
+            switch (value) {
+              case 'none':
+                textDecoration = TextDecoration.none;
+                break;
+              case "single":
+                textDecoration = TextDecoration.underline;
+                break;
+              case "double":
+              case "low":
+              case "error":
+                textDecoration = TextDecoration.underline;
+                break;
+            }
+            final textNode = (widget.child as Text);
+            widget.child = Text(
+              textNode.data!,
+              style:
+                  textNode.style!.merge(TextStyle(decoration: textDecoration)),
+            );
+          }
+          break;
+        case "overline-color":
+        case "underline-color":
+        case "strikethrough-color":
+          if (widget.child != null && widget.child is Text) {
+            final textNode = (widget.child as Text);
+            widget.child = Text(
+              textNode.data!,
+              style: textNode.style!
+                  .merge(TextStyle(decorationColor: Color(value))),
+            );
+          }
+          break;
+        case "overline":
+          if (widget.child != null && widget.child is Text) {
+            TextDecoration textDecoration = TextDecoration.none;
+            switch (value) {
+              case 'none':
+                textDecoration = TextDecoration.none;
+                break;
+              case "overline":
+                textDecoration = TextDecoration.overline;
+                break;
+            }
+            final textNode = (widget.child as Text);
+            widget.child = Text(
+              textNode.data!,
+              style:
+                  textNode.style!.merge(TextStyle(decoration: textDecoration)),
+            );
+          }
+
+          break;
+        case "strikethrough":
+          if (widget.child != null && widget.child is Text) {
+            TextDecoration textDecoration = TextDecoration.none;
+            switch (value) {
+              case 'false':
+                textDecoration = TextDecoration.none;
+                break;
+              case "true":
+                textDecoration = TextDecoration.lineThrough;
+                break;
+            }
+            final textNode = (widget.child as Text);
+            widget.child = Text(
+              textNode.data!,
+              style:
+                  textNode.style!.merge(TextStyle(decoration: textDecoration)),
+            );
+          }
+          break;
+        case "margin-left":
+          widget.margin += EdgeInsets.only(left: value);
+          break;
+        case "margin-right":
+          widget.margin += EdgeInsets.only(right: value);
+          break;
+        case "margin-top":
+          widget.margin += EdgeInsets.only(top: value);
+          break;
+        case "margin-bottom":
+          widget.margin += EdgeInsets.only(bottom: value);
+          break;
+        case "width":
+          widget.width = value;
+          break;
+        case "height":
+          widget.height = value;
+          break;
+      }
+    }
+    return widget;
+  }
+
+  static dynamic parseExpressionValue(css.Expression expression) {
+    if (expression is css.Expressions) {
+      return expression.expressions.map((e) => parseExpressionValue(e)).first;
+    }
+
+    switch (expression) {
+      case css.HexColorTerm _:
+        return expression.value as int;
+      case css.LengthTerm _:
+        return (expression.value as int).toDouble();
+      case css.LiteralTerm _:
+        return expression.text;
+      default:
+        return null;
     }
   }
 }
