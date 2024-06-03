@@ -5,27 +5,32 @@ import 'package:http/http.dart' as http;
 
 const DNS_SERVER = "api.buss.lol";
 
-class DnsError extends Error {}
+class DnsError extends Error {
+  final int statusCode;
 
-class BussError extends Error {}
+  DnsError({required this.statusCode});
+}
+
+class BussError extends Error {
+  final int statusCode;
+
+  BussError({required this.statusCode});
+}
 
 class Network {
   static Future<String> resolveDNS(Uri url) async {
     var dnsBox = await Hive.openBox("dnsBox");
-    if (url.scheme != "buss") throw DnsError();
+    if (url.scheme != "buss") throw DnsError(statusCode: -1);
     List<String> host = url.host.split('.');
     String clientUrl = "https://$DNS_SERVER/domain/${host.first}/${host.last}";
 
     String? cache = dnsBox.get(clientUrl);
     if (cache != null) {
-      print("Using cache $cache");
       return cache;
     }
-    print(clientUrl);
     http.Response dnsResponse = await http.get(Uri.parse(clientUrl));
     if (dnsResponse.statusCode != 200) {
-      print(dnsResponse.statusCode);
-      throw DnsError();
+      throw DnsError(statusCode: dnsResponse.statusCode);
     }
 
     try {
@@ -34,7 +39,7 @@ class Network {
       dnsBox.put(clientUrl, host);
       return host;
     } catch (err) {
-      throw DnsError();
+      throw DnsError(statusCode: 503);
     }
   }
 
@@ -54,9 +59,10 @@ class Network {
     }
 
     http.Response fetchResponse = await http.get(Uri.parse("$dnsUrl/$file"));
-    //TODO: caching
 
-    if (fetchResponse.statusCode != 200) throw BussError();
+    if (fetchResponse.statusCode != 200) {
+      throw BussError(statusCode: fetchResponse.statusCode);
+    }
 
     htmlBox.put(url.toString(), fetchResponse.body);
     return fetchResponse.body;

@@ -214,11 +214,11 @@ class Parser {
       switch (declaration.property) {
         case "border-color":
           widget.decoration = widget.decoration
-              .copyWith(border: Border.all(color: Color(value)));
+              .copyWith(border: Border.all(color: asColor(value)));
           break;
         case "border-width":
-          widget.decoration =
-              widget.decoration.copyWith(border: Border.all(width: value));
+          widget.decoration = widget.decoration
+              .copyWith(border: Border.all(width: asDouble(value)));
           break;
         case "border-style":
           BorderStyle bStyle = BorderStyle.none;
@@ -242,7 +242,7 @@ class Parser {
           break;
         case "border-radius":
           widget.decoration = widget.decoration
-              .copyWith(borderRadius: BorderRadius.circular(value));
+              .copyWith(borderRadius: BorderRadius.circular(asDouble(value)));
           break;
         case "direction":
           if (widget.child != null && widget.child is DivContainer) {
@@ -278,14 +278,14 @@ class Parser {
           }
           break;
         case "color":
-          widget.decoration = widget.decoration.copyWith(color: Color(value));
+          widget.decoration = widget.decoration.copyWith(color: asColor(value));
           break;
         case "padding":
-          widget.padding = value;
+          widget.padding = asDouble(value);
           break;
         case "gap":
           if (widget.child != null && widget.child is DivContainer) {
-            (widget.child as DivContainer).gap = double.parse(value);
+            (widget.child as DivContainer).gap = asDouble(value);
           }
           break;
         case "font-size":
@@ -293,7 +293,8 @@ class Parser {
             final textNode = (widget.child as Text);
             widget.child = Text(
               textNode.data!,
-              style: textNode.style!.merge(TextStyle(fontSize: value)),
+              style:
+                  textNode.style!.merge(TextStyle(fontSize: asDouble(value))),
             );
           }
           break;
@@ -372,7 +373,7 @@ class Parser {
             widget.child = Text(
               textNode.data!,
               style: textNode.style!
-                  .merge(TextStyle(decorationColor: Color(value))),
+                  .merge(TextStyle(decorationColor: asColor(value))),
             );
           }
           break;
@@ -416,26 +417,42 @@ class Parser {
           }
           break;
         case "margin-left":
-          widget.margin += EdgeInsets.only(left: value);
+          widget.margin += EdgeInsets.only(left: asDouble(value));
           break;
         case "margin-right":
-          widget.margin += EdgeInsets.only(right: value);
+          widget.margin += EdgeInsets.only(right: asDouble(value));
           break;
         case "margin-top":
-          widget.margin += EdgeInsets.only(top: value);
+          widget.margin += EdgeInsets.only(top: asDouble(value));
           break;
         case "margin-bottom":
-          widget.margin += EdgeInsets.only(bottom: value);
+          widget.margin += EdgeInsets.only(bottom: asDouble(value));
           break;
         case "width":
-          widget.width = value;
+          widget.width = asDouble(value);
           break;
         case "height":
-          widget.height = value;
+          widget.height = asDouble(value);
           break;
       }
     }
     return widget;
+  }
+
+  static double asDouble(dynamic value) {
+    if (value is double) return value;
+    final dble = double.tryParse(value);
+    if (dble != null) return dble;
+    print("Could not parse to doule $value");
+    return 0;
+  }
+
+  static Color asColor(dynamic value) {
+    if (value is int) return Color(value);
+    final i = int.tryParse(value);
+    if (i != null) return Color(i);
+    print("Could not parse to doule $value");
+    return Colors.red;
   }
 
   static dynamic parseExpressionValue(css.Expression expression) {
@@ -444,6 +461,12 @@ class Parser {
     }
 
     switch (expression) {
+      case css.FunctionTerm _:
+        switch (expression.value) {
+          case 'rgb':
+            return 0;
+        }
+        break;
       case css.HexColorTerm _:
         return expression.value as int;
       case css.LengthTerm _:
