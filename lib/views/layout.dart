@@ -1,5 +1,8 @@
+import 'package:bromium/core/bussViewWidget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
+
+const DEFAULT_URL = "buss://register.it/index.html";
 
 class Layout extends StatelessWidget {
   @override
@@ -12,18 +15,14 @@ class Layout extends StatelessWidget {
             children: [
               Expanded(
                   child: TextFormField(
-                decoration: InputDecoration(hintText: "buzz://register.it"),
+                decoration: const InputDecoration(hintText: DEFAULT_URL),
               ))
             ],
           ),
         ),
         Expanded(
           child: SingleChildScrollView(
-            child: Container(
-              height: 5000,
-              decoration: BoxDecoration(color: Colors.red),
-            ),
-          ),
+              child: BussViewWidget(url: Uri.parse(DEFAULT_URL))),
         )
       ]),
     );
